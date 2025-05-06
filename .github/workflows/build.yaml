@@ -1,0 +1,49 @@
+name: Build 👷
+
+on:
+  push:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  deployment:
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    name: Build the image
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ github.repository }}:${{ github.sha }}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@main
+
+      - name: Get latest 1Password CLI version
+        id: latest_version
+        run: |
+            VERSION=$(python get_latest_cli_version.py)
+            echo "CLI_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        if: matrix.arch == 'arm64'
+        with:
+          platforms: linux/arm64
+
+      - name: Setup buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          push: false
+          build-args: OP_VERSION=${{ env.CLI_VERSION }}
+          tags: ${{ env.IMAGE_NAME }}
+
+      - name: Test if 1Password CLI works
+        run: |
+          docker run --rm ${{ env.IMAGE_NAME }} sh -c "/usr/local/bin/op --version"
